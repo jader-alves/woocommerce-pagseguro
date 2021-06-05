@@ -1,7 +1,7 @@
 <?php
 /**
  * Plugin Name:          Claudio Sanches - PagSeguro for WooCommerce
- * Plugin URI:           https://github.com/claudiosanches/woocommerce-pagseguro
+ * Plugin URI:           https://github.com/jader-alves/woocommerce-pagseguro
  * Description:          Includes PagSeguro as a payment gateway to WooCommerce.
  * Author:               Claudio Sanches | Customizado por Jader Alves
  * Author URI:           https://claudiosanches.com
