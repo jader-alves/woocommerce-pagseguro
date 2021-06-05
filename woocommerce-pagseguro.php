@@ -29,6 +29,7 @@
  * @package WooCommerce_PagSeguro
  */
 
+
 defined( 'ABSPATH' ) || exit;
 
 // Plugin constants.

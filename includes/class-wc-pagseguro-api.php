@@ -105,6 +105,17 @@ class WC_PagSeguro_API {
 		return 'https://ws.' . $this->get_environment() . 'pagseguro.uol.com.br/v2/transactions/notifications/';
 	}
 
+
+	/**
+	 * Get the Bank Ticket (Boleto) URL.
+	 *
+	 * @return string.
+	 */
+	protected function get_bank_ticket_url() {
+		return 'https://ws.' . $this->get_environment() . 'pagseguro.uol.com.br/recurring-payment/boletos';
+	}
+
+
 	/**
 	 * Check if is localhost.
 	 *
@@ -157,6 +168,56 @@ class WC_PagSeguro_API {
 		);
 
 		return isset( $types[ $value ] ) ? $types[ $value ] : __( 'Unknown', 'woocommerce-pagseguro' );
+	}
+
+
+	/**
+	 * Do convert xml to json.
+	 *
+	 * @param  xml data.
+	 *
+	 * @return array
+	 */
+	public function xml_to_json($xml, $order, $posted) {
+
+		if ($xml && !empty($xml)){
+			$dados = simplexml_load_string($xml);
+			$data_json = array();
+			$data_json['reference'] =(string)$dados->reference;
+			$data_json['amount']= $order->data['total'];
+			$data_json['ExtraAmount']=0;
+			$data_json['instructions']="";
+			$data_json['description']="Referencia: ".(string)$dados->reference;
+			$data_json['customer']['document']['type']=(string)$dados->sender->documents[0]->document->type;
+			$data_json['customer']['document']['value']=(string)$dados->sender->documents[0]->document->value;
+			$data_json['customer']['name']= (string)$dados->sender->name;
+			$data_json['customer']['email']= (string)$dados->sender->email;
+			$data_json['customer']['phone']['areaCode']=(string)$dados->sender->phone->areaCode;
+			$data_json['customer']['phone']['number']=(string)$dados->sender->phone->number;
+			$data_json['customer']['address']['postalCode']=(string)$dados->shipping->address->postalCode;
+			$data_json['customer']['address']['street']=(string)$dados->shipping->address->street;
+			$data_json['customer']['address']['number']=(string)$dados->shipping->address->number;
+			$data_json['customer']['address']['district']=(string)$dados->shipping->address->district;
+			$data_json['customer']['address']['complement']=(string)$dados->shipping->address->complement;
+			$data_json['customer']['address']['city']=(string)$dados->shipping->address->city;
+			$data_json['customer']['address']['state']=(string)$dados->shipping->address->state;
+			$data_json['numberOfPayments']="1";
+			$data_json['periodicity']="monthly";
+			if (isset($posted['firstDueDate']) && !empty($posted['firstDueDate']) ){
+				$data = $posted['firstDueDate'];
+			}
+			else{
+				$date = new DateTime();
+				$data = end(getDiasUteis($date->format('Y-m-d'),2));
+			}
+			$data_json['firstDueDate']=$data ;
+			return json_encode($data_json);
+
+		}
+
+		return null;
+
+
 	}
 
 	/**
@@ -480,7 +541,7 @@ class WC_PagSeguro_API {
 	 * @return string
 	 */
 	protected function get_checkout_xml( $order, $posted ) {
-		
+
 		$data    = $this->get_order_items( $order );
 		$ship_to = isset( $posted['ship_to_different_address'] ) ? true : false;
 
@@ -499,7 +560,7 @@ class WC_PagSeguro_API {
 
 		// WooCommerce 3.0 or later.
 		if ( method_exists( $order, 'get_id' ) ) {
-			
+
 			$xml->add_reference( $this->gateway->invoice_prefix . $order->get_id() );
 			$xml->add_sender_data( $order );
 
@@ -722,13 +783,26 @@ class WC_PagSeguro_API {
 
 		// Sets the xml.
 		$xml = $this->get_payment_xml( $order, $posted );
+		$responsavel_pagamento = isset($posted['responsavel_pagamento']) ? $posted['responsavel_pagamento']: 0;
+
 
 		if ( 'yes' == $this->gateway->debug ) {
 			$this->gateway->log->add( $this->gateway->id, 'Requesting direct payment for order ' . $order->get_order_number() . ' with the following data: ' . $xml );
 		}
 
-		$url      = add_query_arg( array( 'email' => $this->gateway->get_email(), 'token' => $this->gateway->get_token() ), $this->get_transactions_url() );
-		$response = $this->do_request( $url, 'POST', $xml, array( 'Content-Type' => 'application/xml;charset=UTF-8' ) );
+		if ($responsavel_pagamento==2)
+		{
+			$url = add_query_arg( array( 'email' => $this->gateway->get_email(), 'token' => $this->gateway->get_token() ), $this->get_bank_ticket_url()  );
+			$jjson = $this->xml_to_json($xml, $order, $posted );
+			$response = $this->do_request( $url, 'POST', $jjson, array( 'Content-Type' => 'application/json','Accept'=>'application/json') );
+
+		}
+		else {
+			$url      = add_query_arg( array( 'email' => $this->gateway->get_email(), 'token' => $this->gateway->get_token() ), $this->get_transactions_url() );
+			$response = $this->do_request( $url, 'POST', $xml, array( 'Content-Type' => 'application/xml;charset=UTF-8' ) );
+		}
+
+
 
 		if ( is_wp_error( $response ) ) {
 			if ( 'yes' == $this->gateway->debug ) {
@@ -745,8 +819,21 @@ class WC_PagSeguro_API {
 				'error' => array( __( 'You are not allowed to use the PagSeguro Transparent Checkout. Looks like you neglected to installation guide of this plugin. This is not pretty, do you know?', 'woocommerce-pagseguro' ) ),
 			);
 		} else {
+
 			try {
-				$data = $this->safe_load_xml( $response['body'], LIBXML_NOCDATA );
+				if ($responsavel_pagamento==2){
+					$data = json_decode($response['body'])->boletos[0];
+					$data->reference = $this->gateway->invoice_prefix . $order->get_id();
+					$data->sender->email = $posted['billing_email'];
+					$data->sender->name = $posted['billing_first_name']." ". $posted['billing_last_name'];
+					$data->paymentMethod->type="2";
+					$data->paymentMethod->code="102";
+					$data->status=1;
+				}
+
+
+				else
+					$data = $this->safe_load_xml( $response['body'], LIBXML_NOCDATA );
 			} catch ( Exception $e ) {
 				$data = '';
 
