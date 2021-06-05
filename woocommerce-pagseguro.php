@@ -3,7 +3,7 @@
  * Plugin Name:          Claudio Sanches - PagSeguro for WooCommerce
  * Plugin URI:           https://github.com/claudiosanches/woocommerce-pagseguro
  * Description:          Includes PagSeguro as a payment gateway to WooCommerce.
- * Author:               Claudio Sanches
+ * Author:               Claudio Sanches | Customizado por Jader Alves
  * Author URI:           https://claudiosanches.com
  * Version:              2.15.0
  * License:              GPLv3 or later
